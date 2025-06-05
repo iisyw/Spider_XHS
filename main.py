@@ -52,7 +52,7 @@ class Data_Spider():
         for note_info in note_list:
             if save_choice == 'all' or save_choice == 'media':
                 raw_data = raw_data_dict.get(note_info['note_id'])
-                download_note(note_info, base_path['media'], raw_data)
+                download_note(note_info, base_path['media'], raw_data, base_path.get('csv'))
         if save_choice == 'all' or save_choice == 'excel':
             file_path = os.path.abspath(os.path.join(base_path['excel'], f'{excel_name}.xlsx'))
             save_to_xlsx(note_list, file_path)
