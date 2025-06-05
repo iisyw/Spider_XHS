@@ -66,10 +66,24 @@ def handle_note_info(data):
     note_id = data['id']
     note_url = data['url']
     note_type = data['note_card']['type']
+    
+    # 检查笔记类型
+    has_videos_in_images = False
     if note_type == 'normal':
-        note_type = '图集'
+        # 检查是否有带视频的图片（live_photo=true）
+        image_list_temp = data['note_card']['image_list']
+        for image in image_list_temp:
+            if image.get('live_photo') == True and 'stream' in image and 'h264' in image['stream']:
+                has_videos_in_images = True
+                break
+        
+        if has_videos_in_images:
+            note_type = '图集视频'
+        else:
+            note_type = '图集'
     else:
         note_type = '视频'
+        
     user_id = data['note_card']['user']['user_id']
     home_url = f'https://www.xiaohongshu.com/user/profile/{user_id}'
     nickname = data['note_card']['user']['nickname']
@@ -82,22 +96,33 @@ def handle_note_info(data):
     collected_count = data['note_card']['interact_info']['collected_count']
     comment_count = data['note_card']['interact_info']['comment_count']
     share_count = data['note_card']['interact_info']['share_count']
+    
+    # 处理图片列表
     image_list_temp = data['note_card']['image_list']
     image_list = []
+    live_videos_list = []  # 存储图片中包含的视频URL
+    
     for image in image_list_temp:
         try:
+            # 添加图片URL
             image_list.append(image['info_list'][1]['url'])
-            # success, msg, img_url = XHS_Apis.get_note_no_water_img(image['info_list'][1]['url'])
-            # image_list.append(img_url)
+            
+            # 如果是live_photo，提取视频URL
+            if image.get('live_photo') == True and 'stream' in image and 'h264' in image['stream']:
+                for video_info in image['stream']['h264']:
+                    if 'master_url' in video_info:
+                        live_videos_list.append(video_info['master_url'])
+                        break
         except:
             pass
-    if note_type == '视频':
-        video_cover = image_list[0]
+    
+    # 处理常规视频
+    video_cover = None
+    video_addr = None
+    if note_type == '视频' and 'video' in data['note_card'] and 'consumer' in data['note_card']['video']:
+        video_cover = image_list[0] if image_list else None
         video_addr = 'https://sns-video-bd.xhscdn.com/' + data['note_card']['video']['consumer']['origin_video_key']
-        # success, msg, video_addr = XHS_Apis.get_note_no_water_video(note_id)
-    else:
-        video_cover = None
-        video_addr = None
+    
     tags_temp = data['note_card']['tag_list']
     tags = []
     for tag in tags_temp:
@@ -110,6 +135,7 @@ def handle_note_info(data):
         ip_location = data['note_card']['ip_location']
     else:
         ip_location = '未知'
+        
     return {
         'note_id': note_id,
         'note_url': note_url,
@@ -127,6 +153,7 @@ def handle_note_info(data):
         'video_cover': video_cover,
         'video_addr': video_addr,
         'image_list': image_list,
+        'live_videos_list': live_videos_list,  # 新增：图集中的视频URL列表
         'tags': tags,
         'upload_time': upload_time,
         'ip_location': ip_location,
@@ -179,13 +206,17 @@ def save_to_xlsx(datas, file_path, type='note'):
     wb = openpyxl.Workbook()
     ws = wb.active
     if type == 'note':
-        headers = ['笔记id', '笔记url', '笔记类型', '用户id', '用户主页url', '昵称', '头像url', '标题', '描述', '点赞数量', '收藏数量', '评论数量', '分享数量', '视频封面url', '视频地址url', '图片地址url列表', '标签', '上传时间', 'ip归属地']
+        headers = ['笔记id', '笔记url', '笔记类型', '用户id', '用户主页url', '昵称', '头像url', '标题', '描述', '点赞数量', '收藏数量', '评论数量', '分享数量', '视频封面url', '视频地址url', '图片地址url列表', '图集中的视频url列表', '标签', '上传时间', 'ip归属地']
     elif type == 'user':
         headers = ['用户id', '用户主页url', '用户名', '头像url', '小红书号', '性别', 'ip地址', '介绍', '关注数量', '粉丝数量', '作品被赞和收藏数量', '标签']
     else:
         headers = ['笔记id', '笔记url', '评论id', '用户id', '用户主页url', '昵称', '头像url', '评论内容', '评论标签', '点赞数量', '上传时间', 'ip归属地', '图片地址url列表']
     ws.append(headers)
     for data in datas:
+        # 确保所有字段都存在
+        if type == 'note' and 'live_videos_list' not in data:
+            data['live_videos_list'] = []
+        
         data = {k: norm_text(str(v)) for k, v in data.items()}
         ws.append(list(data.values()))
     wb.save(file_path)
@@ -240,6 +271,8 @@ def save_note_detail(note, path):
         f.write(f"视频封面url: {note['video_cover']}\n")
         f.write(f"视频地址url: {note['video_addr']}\n")
         f.write(f"图片地址url列表: {note['image_list']}\n")
+        if 'live_videos_list' in note and note['live_videos_list']:
+            f.write(f"图集中的视频url列表: {note['live_videos_list']}\n")
         f.write(f"标签: {note['tags']}\n")
         f.write(f"上传时间: {note['upload_time']}\n")
         f.write(f"ip归属地: {note['ip_location']}\n")
@@ -247,7 +280,7 @@ def save_note_detail(note, path):
 
 
 @retry(tries=3, delay=1)
-def download_note(note_info, path):
+def download_note(note_info, path, raw_data=None):
     note_id = note_info['note_id']
     user_id = note_info['user_id']
     title = note_info['title']
@@ -260,14 +293,39 @@ def download_note(note_info, path):
     check_and_create_path(save_path)
     with open(f'{save_path}/info.json', mode='w', encoding='utf-8') as f:
         f.write(json.dumps(note_info) + '\n')
+    
+    # 保存原始API返回数据到raw_info.json
+    if raw_data:
+        with open(f'{save_path}/raw_info.json', mode='w', encoding='utf-8') as f:
+            f.write(json.dumps(raw_data) + '\n')
+    
     note_type = note_info['note_type']
     save_note_detail(note_info, save_path)
+    
+    # 处理不同类型的笔记
     if note_type == '图集':
+        # 纯图集类型
         for img_index, img_url in enumerate(note_info['image_list']):
             download_media(save_path, f'image_{img_index}', img_url, 'image')
+    
     elif note_type == '视频':
-        download_media(save_path, 'cover', note_info['video_cover'], 'image')
-        download_media(save_path, 'video', note_info['video_addr'], 'video')
+        # 纯视频类型
+        if note_info['video_cover']:
+            download_media(save_path, 'cover', note_info['video_cover'], 'image')
+        if note_info['video_addr']:
+            download_media(save_path, 'video', note_info['video_addr'], 'video')
+    
+    elif note_type == '图集视频':
+        # 图集+视频混合类型
+        # 1. 下载所有图片
+        for img_index, img_url in enumerate(note_info['image_list']):
+            download_media(save_path, f'image_{img_index}', img_url, 'image')
+        
+        # 2. 下载所有视频
+        if 'live_videos_list' in note_info:
+            for video_index, video_url in enumerate(note_info['live_videos_list']):
+                download_media(save_path, f'live_video_{video_index}', video_url, 'video')
+    
     return save_path
 
 

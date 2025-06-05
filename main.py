@@ -17,17 +17,19 @@ class Data_Spider():
         :return:
         """
         note_info = None
+        raw_data = None
         try:
-            success, msg, note_info = self.xhs_apis.get_note_info(note_url, cookies_str, proxies)
+            success, msg, response_data = self.xhs_apis.get_note_info(note_url, cookies_str, proxies)
             if success:
-                note_info = note_info['data']['items'][0]
+                raw_data = response_data  # 保存原始数据
+                note_info = response_data['data']['items'][0]
                 note_info['url'] = note_url
                 note_info = handle_note_info(note_info)
         except Exception as e:
             success = False
             msg = e
         logger.info(f'爬取笔记信息 {note_url}: {success}, msg: {msg}')
-        return success, msg, note_info
+        return success, msg, note_info, raw_data
 
     def spider_some_note(self, notes: list, cookies_str: str, base_path: dict, save_choice: str, excel_name: str = '', proxies=None):
         """
@@ -40,13 +42,17 @@ class Data_Spider():
         if (save_choice == 'all' or save_choice == 'excel') and excel_name == '':
             raise ValueError('excel_name 不能为空')
         note_list = []
+        raw_data_dict = {}  # 存储每个笔记的原始数据
         for note_url in notes:
-            success, msg, note_info = self.spider_note(note_url, cookies_str, proxies)
+            success, msg, note_info, raw_data = self.spider_note(note_url, cookies_str, proxies)
             if note_info is not None and success:
                 note_list.append(note_info)
+                if raw_data:
+                    raw_data_dict[note_info['note_id']] = raw_data
         for note_info in note_list:
             if save_choice == 'all' or save_choice == 'media':
-                download_note(note_info, base_path['media'])
+                raw_data = raw_data_dict.get(note_info['note_id'])
+                download_note(note_info, base_path['media'], raw_data)
         if save_choice == 'all' or save_choice == 'excel':
             file_path = os.path.abspath(os.path.join(base_path['excel'], f'{excel_name}.xlsx'))
             save_to_xlsx(note_list, file_path)
@@ -115,17 +121,17 @@ if __name__ == '__main__':
     data_spider = Data_Spider()
     # save_choice: all: 保存所有的信息, media: 保存视频和图片, excel: 保存到excel
     # save_choice 为 excel 或者 all 时，excel_name 不能为空
-    # 1
+    # 1 - 爬取指定笔记
     notes = [
         r'https://www.xiaohongshu.com/explore/67d7c713000000000900e391?xsec_token=AB1ACxbo5cevHxV_bWibTmK8R1DDz0NnAW1PbFZLABXtE=&xsec_source=pc_user',
     ]
     data_spider.spider_some_note(notes, cookies_str, base_path, 'all', 'test')
 
-    # 2
+    # 2 - 爬取用户所有笔记
     user_url = 'https://www.xiaohongshu.com/user/profile/67a332a2000000000d008358?xsec_token=ABTf9yz4cLHhTycIlksF0jOi1yIZgfcaQ6IXNNGdKJ8xg=&xsec_source=pc_feed'
     data_spider.spider_user_all_note(user_url, cookies_str, base_path, 'all')
 
-    # 3
+    # 3 - 关键词搜索爬取
     query = "榴莲"
     query_num = 10
     sort = "general"
