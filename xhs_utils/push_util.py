@@ -16,11 +16,21 @@ class PushDeer:
         初始化PushDeer推送工具
         :param pushkey: PushDeer的推送密钥，如果为None则从环境变量读取
         """
-        # 优先使用环境变量中的密钥，如果没有则使用传入的参数
-        self.pushkey = pushkey or os.getenv('PUSHDEER_KEY')
+        # 保存初始密钥（如果提供）
+        self._initial_pushkey = pushkey
+        # 初始化时读取密钥
+        self.update_pushkey()
+        self.api_url = "https://api2.pushdeer.com/message/push"
+    
+    def update_pushkey(self):
+        """
+        更新PushDeer密钥，从环境变量重新读取
+        """
+        # 优先使用环境变量中的密钥，如果没有则使用初始化时提供的密钥
+        self.pushkey = os.getenv('PUSHDEER_KEY') or self._initial_pushkey
         if not self.pushkey:
             logger.warning("未设置PushDeer密钥，推送功能将无法使用")
-        self.api_url = "https://api2.pushdeer.com/message/push"
+        return self.pushkey
     
     def send_message(self, title, content, type="markdown"):
         """
@@ -31,6 +41,9 @@ class PushDeer:
         :return: 是否推送成功
         """
         try:
+            # 每次发送消息前重新读取密钥
+            self.update_pushkey()
+            
             payload = {
                 "pushkey": self.pushkey,
                 "text": title,

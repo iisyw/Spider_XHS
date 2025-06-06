@@ -1,7 +1,7 @@
 import os
 from loguru import logger
 from apis.pc_apis import XHS_Apis
-from xhs_utils.common_utils import init
+from xhs_utils.common_utils import init, load_env
 from xhs_utils.data_util import handle_note_info, download_note, save_to_xlsx, create_note_record, norm_str
 from xhs_utils.push_util import pusher
 import sys
@@ -592,14 +592,18 @@ if __name__ == '__main__':
         
         while True:
             try:
+                # 每轮循环开始时重新读取环境变量，获取最新的cookies
+                current_cookies = load_env()
+                
                 # 记录当前轮次开始时间
                 cycle_count += 1
                 cycle_start_time = datetime.now()
                 logger.info(f"开始第 {cycle_count} 轮爬取周期，时间: {cycle_start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                logger.info(f"已重新加载环境变量配置")
                 pusher.notify_info("开始新周期", f"开始第 {cycle_count} 轮爬取周期，时间: {cycle_start_time.strftime('%Y-%m-%d %H:%M:%S')}\n将爬取 {len(user_urls)} 个用户")
                 
-                # 处理所有用户
-                process_users_with_interval(user_urls, cookies_str, base_path)
+                # 处理所有用户，使用最新读取的cookies
+                process_users_with_interval(user_urls, current_cookies, base_path)
                 
                 # 计算本轮用时
                 cycle_end_time = datetime.now()
