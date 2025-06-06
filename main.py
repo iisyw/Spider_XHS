@@ -1,7 +1,7 @@
 import os
 from loguru import logger
 from apis.pc_apis import XHS_Apis
-from xhs_utils.common_utils import init, load_env
+from xhs_utils.common_utils import init, load_env, load_user_urls
 from xhs_utils.data_util import handle_note_info, download_note, save_to_xlsx, create_note_record, norm_str
 from xhs_utils.push_util import pusher
 import sys
@@ -526,10 +526,11 @@ if __name__ == '__main__':
     cookies_str, base_path = init()
     data_spider = Data_Spider()
     
-    # 定义要爬取的用户URL列表
-    user_urls = [
-        'https://www.xiaohongshu.com/user/profile/67a332a2000000000d008358?xsec_token=ABTf9yz4cLHhTycIlksF0jOi1yIZgfcaQ6IXNNGdKJ8xg=&xsec_source=pc_feed'
-    ]
+    # 定义要爬取的用户URL列表 - 从环境变量中加载
+    user_urls = load_user_urls()
+    
+    if not user_urls:
+        logger.warning("未配置要爬取的用户URL，请在.env文件中设置USER_URLS")
     
     # 监听循环处理用户
     def process_users_with_interval(user_urls, cookies_str, base_path):
@@ -584,9 +585,11 @@ if __name__ == '__main__':
         return True
 
     # 开始无限循环监听处理
-    def continuous_monitoring(user_urls, cookies_str, base_path):
+    def continuous_monitoring(initial_user_urls, base_path):
         """
         持续监听处理，每次处理完所有用户后等待1-2小时
+        :param initial_user_urls: 初始用户URL列表，当环境变量中未配置时作为备选
+        :param base_path: 保存路径
         """
         cycle_count = 0  # 周期计数
         
@@ -595,15 +598,28 @@ if __name__ == '__main__':
                 # 每轮循环开始时重新读取环境变量，获取最新的cookies
                 current_cookies = load_env()
                 
+                # 每轮循环也重新读取用户URL列表
+                current_user_urls = load_user_urls()
+                if not current_user_urls:
+                    logger.warning("环境变量中未配置用户URL，使用初始URL列表")
+                    current_user_urls = initial_user_urls
+                
+                if not current_user_urls:
+                    logger.warning("没有配置任何要爬取的用户URL，本轮循环将跳过")
+                    wait_minutes = 30  # 如果没有URL，减少等待时间
+                    logger.info(f"等待 {wait_minutes} 分钟后重新检查配置...")
+                    time.sleep(wait_minutes * 60)
+                    continue  # 跳过本轮循环
+                
                 # 记录当前轮次开始时间
                 cycle_count += 1
                 cycle_start_time = datetime.now()
                 logger.info(f"开始第 {cycle_count} 轮爬取周期，时间: {cycle_start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-                logger.info(f"已重新加载环境变量配置")
-                pusher.notify_info("开始新周期", f"开始第 {cycle_count} 轮爬取周期，时间: {cycle_start_time.strftime('%Y-%m-%d %H:%M:%S')}\n将爬取 {len(user_urls)} 个用户")
+                logger.info(f"已重新加载环境变量配置，当前监控 {len(current_user_urls)} 个用户")
+                pusher.notify_info("开始新周期", f"开始第 {cycle_count} 轮爬取周期，时间: {cycle_start_time.strftime('%Y-%m-%d %H:%M:%S')}\n将爬取 {len(current_user_urls)} 个用户")
                 
-                # 处理所有用户，使用最新读取的cookies
-                process_users_with_interval(user_urls, current_cookies, base_path)
+                # 处理所有用户，使用最新读取的cookies和用户列表
+                process_users_with_interval(current_user_urls, current_cookies, base_path)
                 
                 # 计算本轮用时
                 cycle_end_time = datetime.now()
@@ -636,7 +652,7 @@ if __name__ == '__main__':
                 time.sleep(30 * 60)
     
     # 开始连续监听处理
-    continuous_monitoring(user_urls, cookies_str, base_path)
+    continuous_monitoring(user_urls, base_path)
     
     # 注释掉原来的代码
     # save_choice: all: 保存所有的信息, media: 保存视频和图片, excel: 保存到excel

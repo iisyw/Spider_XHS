@@ -7,6 +7,22 @@ def load_env():
     cookies_str = os.getenv('COOKIES')
     return cookies_str
 
+def load_user_urls():
+    """
+    从环境变量中加载用户URL列表
+    :return: 用户URL列表
+    """
+    load_dotenv()
+    user_urls_str = os.getenv('USER_URLS', '')
+    if not user_urls_str:
+        logger.warning("环境变量中未设置USER_URLS，将使用空列表")
+        return []
+    
+    # 使用分号分隔多个URL
+    user_urls = [url.strip() for url in user_urls_str.split(';') if url.strip()]
+    logger.info(f"从环境变量加载了 {len(user_urls)} 个用户URL")
+    return user_urls
+
 def init():
     media_base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../datas/media_datas'))
     excel_base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../datas/excel_datas'))
