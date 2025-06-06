@@ -4,14 +4,22 @@ import socket
 from datetime import datetime
 from loguru import logger
 import re
+import os
+from xhs_utils.common_utils import load_env
+
+# 加载.env文件中的环境变量
+load_env()
 
 class PushDeer:
-    def __init__(self, pushkey):
+    def __init__(self, pushkey=None):
         """
         初始化PushDeer推送工具
-        :param pushkey: PushDeer的推送密钥
+        :param pushkey: PushDeer的推送密钥，如果为None则从环境变量读取
         """
-        self.pushkey = pushkey
+        # 优先使用环境变量中的密钥，如果没有则使用传入的参数
+        self.pushkey = pushkey or os.getenv('PUSHDEER_KEY')
+        if not self.pushkey:
+            logger.warning("未设置PushDeer密钥，推送功能将无法使用")
         self.api_url = "https://api2.pushdeer.com/message/push"
     
     def send_message(self, title, content, type="markdown"):
@@ -170,5 +178,5 @@ class PushDeer:
         
         return self.send_message(title, content)
 
-# 初始化全局推送器实例
-pusher = PushDeer("") 
+# 初始化全局推送器实例，从环境变量获取密钥
+pusher = PushDeer() 
