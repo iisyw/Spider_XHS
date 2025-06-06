@@ -523,14 +523,16 @@ if __name__ == '__main__':
     pusher.notify_startup()
     logger.info("爬虫程序已启动，已发送通知")
     
+    # 初始化基本路径和数据爬虫
     cookies_str, base_path = init()
     data_spider = Data_Spider()
     
-    # 定义要爬取的用户URL列表 - 从环境变量中加载
+    # 记录初始加载的配置信息
     user_urls = load_user_urls()
-    
-    if not user_urls:
-        logger.warning("未配置要爬取的用户URL，请在.env文件中设置USER_URLS")
+    if user_urls:
+        logger.info(f"初始加载了 {len(user_urls)} 个用户URL")
+    else:
+        logger.warning("未配置要爬取的用户URL，请在.env文件中设置USER_URLS，爬虫将在配置后开始工作")
     
     # 监听循环处理用户
     def process_users_with_interval(user_urls, cookies_str, base_path):
@@ -540,8 +542,10 @@ if __name__ == '__main__':
         :param cookies_str: cookies字符串
         :param base_path: 保存路径
         """
-        total_downloaded = 0  # 本轮实际下载笔记数量
-        
+        if not user_urls:
+            logger.warning("用户URL列表为空，无法处理")
+            return
+            
         for i, user_url in enumerate(user_urls):
             # 提取用户ID用于日志
             user_id = user_url.split('/')[-1].split('?')[0]
@@ -561,15 +565,9 @@ if __name__ == '__main__':
                 if i < len(user_urls) - 1:
                     # 随机等待时间（30-60秒）
                     wait_seconds = random.randint(30, 60)
-                    
-                    # 记录等待信息
                     logger.info(f"等待 {wait_seconds} 秒后继续下一个用户")
-                    
-                    # 等待指定时间
                     time.sleep(wait_seconds)
-                    
-                    # 发送继续通知
-                    logger.info(f"等待结束，开始下一个用户")
+                    logger.info("等待结束，开始下一个用户")
             except Exception as e:
                 logger.error(f"处理用户 {user_id} 时出错: {e}")
                 pusher.notify_error("爬虫错误", f"处理用户 {user_id} 时出错: {e}")
@@ -582,28 +580,22 @@ if __name__ == '__main__':
         
         # 所有用户处理完成
         logger.info(f"所有 {len(user_urls)} 个用户处理完成")
-        return True
 
-    # 开始无限循环监听处理
-    def continuous_monitoring(initial_user_urls, base_path):
+    # 开始连续监听处理
+    def continuous_monitoring(base_path):
         """
         持续监听处理，每次处理完所有用户后等待1-2小时
-        :param initial_user_urls: 初始用户URL列表，当环境变量中未配置时作为备选
         :param base_path: 保存路径
         """
         cycle_count = 0  # 周期计数
         
         while True:
             try:
-                # 每轮循环开始时重新读取环境变量，获取最新的cookies
+                # 每轮循环开始时重新读取环境变量，获取最新的cookies和用户URL列表
                 current_cookies = load_env()
-                
-                # 每轮循环也重新读取用户URL列表
                 current_user_urls = load_user_urls()
-                if not current_user_urls:
-                    logger.warning("环境变量中未配置用户URL，使用初始URL列表")
-                    current_user_urls = initial_user_urls
                 
+                # 如果没有URL可爬取，等待后重试
                 if not current_user_urls:
                     logger.warning("没有配置任何要爬取的用户URL，本轮循环将跳过")
                     wait_minutes = 30  # 如果没有URL，减少等待时间
@@ -652,7 +644,7 @@ if __name__ == '__main__':
                 time.sleep(30 * 60)
     
     # 开始连续监听处理
-    continuous_monitoring(user_urls, base_path)
+    continuous_monitoring(base_path)
     
     # 注释掉原来的代码
     # save_choice: all: 保存所有的信息, media: 保存视频和图片, excel: 保存到excel
