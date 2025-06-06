@@ -157,6 +157,18 @@ class PushDeer:
         content = f"### 错误详情\n\n{details}"
         
         return self.send_message(title, content)
+    
+    def notify_info(self, info_type, details):
+        """
+        发送普通信息通知
+        :param info_type: 信息类型（如"爬虫休息中"）
+        :param details: 信息详情
+        :return: 是否推送成功
+        """
+        title = f"📢 小红书爬虫：{info_type}"
+        content = f"### {info_type}\n\n{details}"
+        
+        return self.send_message(title, content)
 
 # 初始化全局推送器实例
 pusher = PushDeer("") 
