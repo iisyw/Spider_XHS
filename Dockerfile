@@ -1,7 +1,8 @@
 FROM python:3.9-slim
 
-# 设置代理地址变量（只需修改此处）
-ARG PROXY_URL=http://proxy-server:port
+# 设置代理地址变量（默认为空，不使用代理）
+# ARG PROXY_URL= http://proxy-server:port
+ARG PROXY_URL=
 
 # 配置系统级代理环境变量
 ENV http_proxy=${PROXY_URL}

@@ -10,3 +10,4 @@
 8. 完善docker的使用
 9. 更新README
 10. 修改Dockerfile，增加代理配置
+11. 修改Dockerfile默认不使用代理
