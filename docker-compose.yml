@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  spider_xhs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: spider_xhs:latest
+    container_name: spider_xhs
+    restart: always
+    volumes:
+      - ./datas:/app/datas
+      - ./.env:/app/.env
+    environment:
+      - TZ=Asia/Shanghai

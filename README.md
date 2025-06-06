@@ -85,6 +85,46 @@ pip install -r requirements.txt
 npm install
 ```
 
+### 🐳 Docker部署
+项目支持Docker容器化部署，提供两种部署方式：
+
+#### 1. 使用Docker Compose（推荐）
+```bash
+# 克隆项目
+git clone https://github.com/your-username/Spider_XHS.git
+cd Spider_XHS
+
+# 创建并编辑.env配置文件
+cp .env.example .env  # 如果没有.env.example，请手动创建.env文件
+vi .env               # 编辑配置文件，填入必要的配置项
+
+# 使用Docker Compose启动服务
+docker-compose up -d
+
+# 查看日志
+docker logs -f spider_xhs
+```
+
+#### 2. 使用Docker直接构建运行
+```bash
+# 构建镜像
+docker build -t spider_xhs .
+
+# 运行容器
+docker run -d --name spider_xhs \
+  -v $(pwd)/datas:/app/datas \
+  -v $(pwd)/.env:/app/.env \
+  -e TZ=Asia/Shanghai \
+  spider_xhs
+```
+
+**Docker部署优势:**
+- 环境隔离，避免依赖冲突
+- 持久化存储，自动挂载数据目录
+- 支持热更新配置文件（修改.env后自动生效）
+- 容器自动重启策略(always)，保障长时间稳定运行
+- 采用国内镜像源，加速构建过程
+
 ### 🎨配置文件
 配置文件在项目根目录`.env`文件中，包含以下配置项：
 
