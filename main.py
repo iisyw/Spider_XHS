@@ -2,7 +2,7 @@ import os
 from loguru import logger
 from apis.pc_apis import XHS_Apis
 from xhs_utils.common_utils import init, load_env, load_user_urls
-from xhs_utils.data_util import handle_note_info, download_note, save_to_xlsx, create_note_record, norm_str
+from xhs_utils.data_util import handle_note_info, download_note, save_to_xlsx, create_note_record, norm_str, check_note_files_complete
 from xhs_utils.push_util import pusher
 import sys
 import csv
@@ -93,161 +93,124 @@ class Data_Spider():
             logger.info(f"没有找到需要下载的笔记")
             return [], []
             
-        # 遍历下载笔记
+        # 先检查本地文件完整性，只对不完整的笔记发起API请求
+        needs_api_request = []  # 需要发起API请求的笔记
         for note_url in notes:
-            try:
-                # 检查是否已经获取过该笔记的详细信息
-                if note_url in pre_fetched_notes:
-                    # 使用预获取的信息，避免重复请求API
-                    note_info, raw_data = pre_fetched_notes[note_url]
-                    success = True
-                    msg = "使用预获取信息"
-                    logger.debug(f"使用预获取笔记信息: {note_url}")
-                else:
-                    # 未获取过，请求API
-                    success, msg, note_info, raw_data = self.spider_note(note_url, cookies_str, proxies)
+            # 从URL中提取笔记ID
+            note_id = note_url.split('/')[-1].split('?')[0]
+            
+            # 检查是否已在预获取列表中
+            if note_url in pre_fetched_notes:
+                # 已经获取过详情的笔记，直接使用缓存
+                note_info, raw_data = pre_fetched_notes[note_url]
+                note_list.append(note_info)
+                raw_data_dict[note_info['note_id']] = raw_data
+                continue
                 
-                if note_info is not None and success:
-                    note_list.append(note_info)
-                    if raw_data:
-                        raw_data_dict[note_info['note_id']] = raw_data
-                else:
-                    # 记录下载失败的笔记
-                    failed_note = {
-                        'note_url': note_url,
-                        'error': msg if isinstance(msg, str) else str(msg)
-                    }
-                    failed_notes.append(failed_note)
-            except Exception as e:
-                logger.error(f"处理笔记 {note_url} 时发生异常: {e}")
-                failed_notes.append({
-                    'note_url': note_url,
-                    'error': str(e)
-                })
+            # 检查CSV记录和本地文件完整性
+            is_complete = check_note_files_complete(note_id, base_path.get('csv'), base_path.get('media'))
+            
+            if is_complete:
+                logger.info(f"笔记 {note_id} 本地文件完整，跳过API请求")
+                # 尝试从本地加载笔记信息
+                try:
+                    user_id = None
+                    # 查找对应的CSV文件
+                    csv_path = base_path.get('csv')
+                    if csv_path:
+                        import glob
+                        # 搜索可能包含此笔记的CSV文件
+                        for csv_file in glob.glob(os.path.join(csv_path, '*_download_record.csv')):
+                            try:
+                                with open(csv_file, 'r', encoding='utf-8') as f:
+                                    reader = csv.reader(f)
+                                    next(reader)  # 跳过表头
+                                    for row in reader:
+                                        if row and row[0] == note_id:
+                                            user_id = os.path.basename(csv_file).replace('_download_record.csv', '')
+                                            break
+                                    if user_id:
+                                        break
+                            except Exception as e:
+                                logger.warning(f"读取CSV文件错误 {csv_file}: {e}")
+                    
+                    if user_id:
+                        # 尝试加载info.json
+                        nickname = "未知用户"  # 默认昵称
+                        title = note_id  # 默认使用ID作为标题
+                        
+                        # 遍历用户文件夹寻找对应笔记
+                        media_path = base_path.get('media')
+                        if media_path and os.path.exists(media_path):
+                            for user_folder in os.listdir(media_path):
+                                if user_folder.endswith(f"_{user_id}"):
+                                    user_dir = os.path.join(media_path, user_folder)
+                                    # 查找包含note_id的文件夹
+                                    for note_folder in os.listdir(user_dir):
+                                        if note_id in note_folder and os.path.isdir(os.path.join(user_dir, note_folder)):
+                                            note_dir = os.path.join(user_dir, note_folder)
+                                            info_path = os.path.join(note_dir, 'info.json')
+                                            if os.path.exists(info_path):
+                                                with open(info_path, 'r', encoding='utf-8') as f:
+                                                    note_info = json.load(f)
+                                                    note_list.append(note_info)
+                                                    logger.debug(f"从本地加载笔记 {note_id} 详细信息")
+                                                    break
+                    
+                    # 如果未能从本地加载，仍需API请求
+                    if note_id not in [note.get('note_id') for note in note_list if note]:
+                        needs_api_request.append(note_url)
+                except Exception as e:
+                    logger.warning(f"尝试从本地加载笔记 {note_id} 信息失败: {e}")
+                    needs_api_request.append(note_url)
+            else:
+                # 文件不完整，需要API请求
+                needs_api_request.append(note_url)
         
-        # 跟踪实际下载的笔记数量
+        # 对需要API请求的笔记进行爬取
         actually_downloaded_count = 0
+        api_request_count = len(needs_api_request)
+        
+        if api_request_count > 0:
+            logger.info(f"总共 {total_notes} 个笔记，需要API请求的数量: {api_request_count}")
+            
+            for note_url in needs_api_request:
+                try:
+                    # 进行API请求获取笔记详情
+                    success, msg, note_info, raw_data = self.spider_note(note_url, cookies_str, proxies)
+                    
+                    if note_info is not None and success:
+                        note_list.append(note_info)
+                        if raw_data:
+                            raw_data_dict[note_info['note_id']] = raw_data
+                    else:
+                        # 记录下载失败的笔记
+                        failed_note = {
+                            'note_url': note_url,
+                            'error': msg if isinstance(msg, str) else str(msg)
+                        }
+                        failed_notes.append(failed_note)
+                except Exception as e:
+                    logger.error(f"处理笔记 {note_url} 时发生异常: {e}")
+                    failed_notes.append({
+                        'note_url': note_url,
+                        'error': str(e)
+                    })
         
         # 处理下载成功的笔记
-        success_count = len(note_list)
         for note_info in note_list:
-            if save_choice == 'all' or save_choice == 'media':
-                raw_data = raw_data_dict.get(note_info['note_id'])
-                note_id = note_info['note_id']
+            if not note_info:
+                continue
                 
-                # 检查是否已存在且完整，如果是则跳过下载
-                is_complete = False
-                if base_path.get('csv'):
-                    # 先检查CSV记录
-                    user_id = note_info['user_id']
-                    title = note_info.get('title', '无标题')
-                    # 规范化标题，确保与download_note函数中使用的逻辑一致
-                    title = norm_str(title)
-                    nickname = note_info.get('nickname', '未知用户')
-                    nickname = norm_str(nickname)
-                    
-                    # 构建保存路径，与download_note函数中的逻辑一致
-                    save_path = f"{base_path['media']}/{nickname}_{user_id}/{title}_{note_id}"
-                    
-                    # 检查CSV记录
-                    csv_file = os.path.join(base_path.get('csv'), f'{user_id}_download_record.csv')
-                    csv_complete = False
-                    if os.path.exists(csv_file):
-                        with open(csv_file, 'r', encoding='utf-8') as f:
-                            reader = csv.reader(f)
-                            next(reader)  # 跳过表头
-                            for row in reader:
-                                if row and row[0] == note_id and len(row) > 6 and row[6].strip().lower() == 'true':
-                                    # CSV记录显示已完成
-                                    csv_complete = True
-                                    break
-                    
-                    # 检查文件夹和关键文件是否存在
-                    folder_exists = os.path.exists(save_path)
-                    info_json_exists = os.path.exists(f'{save_path}/info.json')
-                    
-                    # 检查媒体文件是否存在，根据笔记类型
-                    media_files_exist = False
-                    media_files_complete = False
-                    note_type = note_info.get('note_type', '')
-                    
-                    if folder_exists and info_json_exists:
-                        # 读取info.json获取预期的文件数量信息
-                        try:
-                            with open(f'{save_path}/info.json', 'r', encoding='utf-8') as f:
-                                stored_note_info = json.loads(f.read().strip())
-                            
-                            # 检查根据笔记类型进行详细的文件数量检查
-                            if note_type == '视频':
-                                # 视频类型检查video.mp4文件
-                                media_files_exist = os.path.exists(f'{save_path}/video.mp4')
-                                media_files_complete = media_files_exist
-                                
-                            elif note_type == '图集':
-                                # 图集类型检查所有图片文件
-                                expected_image_count = len(stored_note_info.get('image_list', []))
-                                actual_image_files = [f for f in os.listdir(save_path) if f.startswith('image_') and f.endswith('.jpg')]
-                                actual_image_count = len(actual_image_files)
-                                
-                                # 检查是否所有序号的图片都存在
-                                expected_image_indexes = set(range(expected_image_count))
-                                actual_image_indexes = set()
-                                for img_file in actual_image_files:
-                                    try:
-                                        img_index = int(img_file.replace('image_', '').replace('.jpg', ''))
-                                        actual_image_indexes.add(img_index)
-                                    except ValueError:
-                                        pass
-                                
-                                # 必须存在至少一张图片，且实际图片数量与预期相符
-                                media_files_exist = len(actual_image_files) > 0
-                                media_files_complete = expected_image_count == actual_image_count and expected_image_indexes == actual_image_indexes
-                                
-                                if not media_files_complete:
-                                    logger.warning(f"笔记 {note_id} 图集不完整: 预期{expected_image_count}张, 实际{actual_image_count}张, 缺失的索引: {expected_image_indexes - actual_image_indexes}")
-                                
-                            elif note_type == '图集视频':
-                                # 图集视频类型需要检查所有图片和对应的视频
-                                # 1. 检查图片数量
-                                expected_image_count = len(stored_note_info.get('image_list', []))
-                                actual_image_files = [f for f in os.listdir(save_path) if f.startswith('image_') and f.endswith('.jpg')]
-                                actual_image_count = len(actual_image_files)
-                                
-                                # 2. 检查视频数量
-                                video_image_mapping = stored_note_info.get('video_image_mapping', {})
-                                expected_video_count = len(video_image_mapping)
-                                expected_video_image_indexes = {int(img_idx) for _, img_idx in video_image_mapping.items()}
-                                
-                                actual_video_files = [f for f in os.listdir(save_path) if f.startswith('live_video_') and f.endswith('.mp4')]
-                                actual_video_indexes = set()
-                                for video_file in actual_video_files:
-                                    try:
-                                        video_index = int(video_file.replace('live_video_', '').replace('.mp4', ''))
-                                        actual_video_indexes.add(video_index)
-                                    except ValueError:
-                                        pass
-                                
-                                # 必须有图片和视频，且图片和视频的数量与预期相符
-                                media_files_exist = len(actual_image_files) > 0 and len(actual_video_files) > 0
-                                images_complete = expected_image_count == actual_image_count
-                                videos_complete = expected_video_image_indexes.issubset(actual_video_indexes)
-                                media_files_complete = images_complete and videos_complete
-                                
-                                if not media_files_complete:
-                                    if not images_complete:
-                                        logger.warning(f"笔记 {note_id} 图集视频的图片不完整: 预期{expected_image_count}张, 实际{actual_image_count}张")
-                                    if not videos_complete:
-                                        logger.warning(f"笔记 {note_id} 图集视频的视频不完整: 预期{len(expected_video_image_indexes)}个, 实际{len(actual_video_indexes)}个, 缺失的索引: {expected_video_image_indexes - actual_video_indexes}")
-                        except Exception as e:
-                            logger.warning(f"检查笔记 {note_id} 文件完整性时出错: {e}")
-                            media_files_exist = False
-                            media_files_complete = False
-                    
-                    # 仅当CSV记录显示完成且文件夹、info.json和媒体文件都完整存在时，才视为完整下载
-                    is_complete = csv_complete and folder_exists and info_json_exists and media_files_exist and media_files_complete
-                    
-                    if csv_complete and not (folder_exists and info_json_exists and media_files_exist and media_files_complete):
-                        logger.warning(f"笔记 {note_id} 的CSV记录显示已完成，但文件不完整，需要重新下载")
+            note_id = note_info.get('note_id')
+            if not note_id:
+                continue
+                
+            if save_choice == 'all' or save_choice == 'media':
+                raw_data = raw_data_dict.get(note_id)
+                
+                # 检查是否已存在且完整
+                is_complete = check_note_files_complete(note_id, base_path.get('csv'), base_path.get('media'))
                 
                 # 如果已完成，则记录跳过；否则进行下载并增加计数
                 if is_complete:
@@ -267,7 +230,7 @@ class Data_Spider():
         # 只有在实际下载了新内容或有失败记录时才发送通知
         if actually_downloaded_count > 0 or failed_notes:
             logger.info(f"实际下载了 {actually_downloaded_count} 个笔记，失败 {len(failed_notes)} 个")
-            pusher.notify_download_results(user_name, total_notes, success_count, failed_notes)
+            pusher.notify_download_results(user_name, total_notes, len(note_list), failed_notes)
         else:
             logger.info(f"所有笔记都已下载完成，无需重复下载，跳过通知")
             
@@ -326,28 +289,28 @@ class Data_Spider():
                                             'desc': row[4],  # desc在第5列
                                         }
                 
-                # 收集新笔记和所有笔记
+                # 收集笔记和潜在的新笔记
+                potential_new_notes = []  # 潜在新笔记的ID和URL
                 for simple_note_info in all_note_info:
                     note_id = simple_note_info['note_id']
                     note_url = f"https://www.xiaohongshu.com/explore/{note_id}?xsec_token={simple_note_info['xsec_token']}"
                     note_list.append(note_url)
                     
-                    # 检查是否为新笔记，新笔记需要特殊处理
+                    # 检查是否为新笔记
                     if note_id not in existing_notes:
-                        # 收集潜在的新笔记的URL和初步信息，但暂不创建记录
-                        logger.debug(f"发现潜在的新笔记: {note_id}")
-                        new_note_list.append({
+                        potential_new_notes.append({
                             'note_id': note_id, 
                             'note_url': note_url,
                             'user_id': user_id
                         })
                 
-                # 优先处理新发现的笔记，先获取完整信息再创建记录和推送通知
+                # 只对新笔记发起API请求
                 confirmed_new_notes = []
                 pre_fetched_notes = {}  # 保存已获取的笔记详细信息
-                if new_note_list:
-                    logger.info(f"发现{len(new_note_list)}篇潜在新笔记，获取详细信息...")
-                    for new_note in new_note_list:
+                
+                if potential_new_notes:
+                    logger.info(f"发现{len(potential_new_notes)}篇潜在新笔记，获取详细信息...")
+                    for new_note in potential_new_notes:
                         note_id = new_note['note_id']
                         note_url = new_note['note_url']
                         
@@ -445,26 +408,27 @@ class Data_Spider():
                         except Exception as e:
                             logger.warning(f"读取CSV文件错误 {csv_file}: {e}")
                 
+                # 收集潜在的新笔记
+                potential_new_notes = []  # 潜在新笔记的ID和URL
                 for note in notes:
                     note_id = note['id']
                     note_url = f"https://www.xiaohongshu.com/explore/{note_id}?xsec_token={note['xsec_token']}"
                     note_list.append(note_url)
                     
-                    # 检查是否为新笔记，新笔记需要特殊处理
+                    # 检查是否为新笔记
                     if note_id not in existing_notes:
-                        # 收集潜在的新笔记的URL和初步信息
-                        logger.debug(f"发现潜在的搜索笔记: {note_id}")
-                        new_note_list.append({
+                        potential_new_notes.append({
                             'note_id': note_id,
                             'note_url': note_url
                         })
                 
-                # 优先处理新发现的笔记，先获取完整信息再创建记录和推送通知
+                # 只对新笔记发起API请求
                 confirmed_new_notes = []
                 pre_fetched_notes = {}  # 保存已获取的笔记详细信息
-                if new_note_list:
-                    logger.info(f"发现{len(new_note_list)}篇潜在搜索结果笔记，获取详细信息...")
-                    for new_note in new_note_list:
+                
+                if potential_new_notes:
+                    logger.info(f"发现{len(potential_new_notes)}篇潜在搜索结果笔记，获取详细信息...")
+                    for new_note in potential_new_notes:
                         note_id = new_note['note_id']
                         note_url = new_note['note_url']
                         
@@ -475,8 +439,6 @@ class Data_Spider():
                                 # 缓存已获取的详细信息
                                 pre_fetched_notes[note_url] = (note_info, raw_data)
                                 
-                                # 获取用户ID，可能在note_info中已经包含
-                                user_id = note_info.get('user_id', "search_results")
                                 # 使用详细信息创建CSV记录
                                 is_existing, _ = create_note_record(note_info, base_path.get('csv'))
                                 if not is_existing:
