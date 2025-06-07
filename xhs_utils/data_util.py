@@ -331,12 +331,13 @@ def check_note_files_complete(note_id, csv_path=None, media_path=None):
     return is_complete
 
 # 修改create_note_record函数以扩展CSV记录
-def create_note_record(note_info, csv_path=None):
+def create_note_record(note_info, csv_path=None, update_record=False):
     """
     创建笔记的CSV记录
     
     :param note_info: 笔记信息
     :param csv_path: CSV保存路径
+    :param update_record: 是否同时更新记录状态（设置is_complete=True）
     :return: 是否已存在记录, CSV文件路径
     """
     if not csv_path:
@@ -345,6 +346,7 @@ def create_note_record(note_info, csv_path=None):
     try:
         import os
         import csv
+        from loguru import logger  # 添加logger导入
         
         # 获取基本信息
         note_id = note_info.get('note_id', '')
@@ -358,7 +360,8 @@ def create_note_record(note_info, csv_path=None):
         desc = desc.replace('\n', ' ').replace('\r', ' ')
         
         create_time = note_info.get('create_time', '')
-        is_complete = False
+        # 如果update_record为True，则设置is_complete为True
+        is_complete = update_record
         
         # 获取图片和视频数量
         image_count = len(note_info.get('image_list', []))
@@ -399,6 +402,12 @@ def create_note_record(note_info, csv_path=None):
                         else:  # 更新现有字段
                             row[-2] = str(image_count)
                             row[-1] = str(video_count)
+                        
+                        # 如果设置了update_record，则更新is_complete字段
+                        if update_record and len(row) > 6:
+                            row[6] = str(True)
+                            logger.debug(f"在create_note_record中更新记录状态: 笔记ID={note_id}, 状态=True")
+                        
                         rows[i] = row
                         break
                 
@@ -423,7 +432,6 @@ def create_note_record(note_info, csv_path=None):
         
         return is_existing, csv_file
     except Exception as e:
-        from loguru import logger
         logger.error(f"创建笔记记录失败: {e}")
         return False, None
 
@@ -854,8 +862,12 @@ def download_note(note_info, save_path, raw_data, csv_path=None):
         note_type = note_info.get('note_type', '')
 
         # 首先检查是否已下载完成(csv中标记为完成)
-        if check_download_status(note_info, save_path, csv_path):
+        is_already_complete = check_download_status(note_info, save_path, csv_path)
+        if is_already_complete:
             logger.debug(f"笔记 {note_id} 已完整下载，跳过")
+            # 仍然更新CSV状态确保标记为完成
+            if csv_path:
+                update_download_status(note_id, user_id, True, csv_path)
             return None
 
         # 创建保存目录
@@ -1051,6 +1063,10 @@ def update_download_status(note_id, user_id, status, csv_path):
             # 更新状态
             for i, row in enumerate(rows):
                 if i > 0 and row and row[0] == note_id:
+                    old_status = "未知"
+                    if len(row) > 6:
+                        old_status = row[6]
+                    
                     # 更新is_complete字段
                     if len(row) > 6:
                         row[6] = str(status)
@@ -1061,6 +1077,7 @@ def update_download_status(note_id, user_id, status, csv_path):
                         row[6] = str(status)
                     rows[i] = row
                     found = True
+                    logger.debug(f"更新CSV记录状态: 笔记ID={note_id}, 用户ID={user_id}, 旧状态={old_status}, 新状态={status}")
                     break
         
         # 如果没有找到记录
@@ -1073,9 +1090,13 @@ def update_download_status(note_id, user_id, status, csv_path):
             writer = csv.writer(f)
             writer.writerows(rows)
             
+        # 确认文件被保存
+        logger.debug(f"已成功保存更新后的CSV文件: {csv_file}")
+            
     except Exception as e:
         logger.error(f"更新下载状态失败: {e}")
-        
+        logger.error(f"错误详情: {traceback.format_exc()}")
+
 def check_and_create_path(path):
     if not os.path.exists(path):
         os.makedirs(path)

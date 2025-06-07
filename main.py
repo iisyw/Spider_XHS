@@ -2,7 +2,7 @@ import os
 from loguru import logger
 from apis.pc_apis import XHS_Apis
 from xhs_utils.common_utils import init, load_env, load_user_urls
-from xhs_utils.data_util import handle_note_info, download_note, save_to_xlsx, create_note_record, norm_str, check_note_files_complete
+from xhs_utils.data_util import handle_note_info, download_note, save_to_xlsx, create_note_record, norm_str, check_note_files_complete, update_download_status
 from xhs_utils.push_util import pusher
 import sys
 import csv
@@ -13,7 +13,7 @@ import json
 
 # 配置日志级别为DEBUG，显示所有调试信息
 logger.remove()
-logger.add(sink=sys.stderr, level="INFO")
+logger.add(sink=sys.stderr, level="DEBUG")
 
 class Data_Spider():
     def __init__(self):
@@ -215,6 +215,16 @@ class Data_Spider():
                 # 如果已完成，则记录跳过；否则进行下载并增加计数
                 if is_complete:
                     logger.debug(f"笔记 {note_id} 已完整下载，跳过")
+                    
+                    # 确保CSV记录中正确标记为完成
+                    user_id = note_info.get('user_id')
+                    if user_id and base_path.get('csv'):
+                        logger.debug(f"尝试更新CSV记录状态: 笔记ID={note_id}, 用户ID={user_id}, 状态=True")
+                        # 方法1: 使用update_download_status函数
+                        update_download_status(note_id, user_id, True, base_path.get('csv'))
+                        
+                        # 方法2: 尝试使用create_note_record强制更新记录状态
+                        create_note_record(note_info, base_path.get('csv'), update_record=True)
                 else:
                     download_note(note_info, base_path['media'], raw_data, base_path.get('csv'))
                     actually_downloaded_count += 1
