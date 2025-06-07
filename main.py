@@ -527,6 +527,10 @@ if __name__ == '__main__':
     cookies_str, base_path = init()
     data_spider = Data_Spider()
     
+    # 读取运行模式配置
+    run_mode = os.environ.get('RUN_MODE', 'continuous').strip().lower()
+    logger.info(f"爬虫运行模式: {run_mode}")
+    
     # 记录初始加载的配置信息
     user_urls = load_user_urls()
     if user_urls:
@@ -580,6 +584,9 @@ if __name__ == '__main__':
         
         # 所有用户处理完成
         logger.info(f"所有 {len(user_urls)} 个用户处理完成")
+        # 只运行一次模式下，发送完成通知
+        if run_mode == 'once':
+            pusher.notify_info("爬取完成", f"一次性运行模式已完成，共处理 {len(user_urls)} 个用户")
 
     # 开始连续监听处理
     def continuous_monitoring(base_path):
@@ -643,8 +650,16 @@ if __name__ == '__main__':
                 # 出错后等待30分钟
                 time.sleep(30 * 60)
     
-    # 开始连续监听处理
-    continuous_monitoring(base_path)
+    # 根据运行模式选择执行方式
+    if run_mode == 'once':
+        # 一次性运行模式
+        logger.info("启动一次性运行模式，将处理所有用户后退出")
+        process_users_with_interval(user_urls, cookies_str, base_path)
+        logger.info("一次性运行模式完成，程序退出")
+    else:
+        # 持续监听模式（默认）
+        logger.info("启动持续监听模式，将循环处理所有用户")
+        continuous_monitoring(base_path)
     
     # 注释掉原来的代码
     # save_choice: all: 保存所有的信息, media: 保存视频和图片, excel: 保存到excel
