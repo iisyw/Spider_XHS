@@ -1076,45 +1076,6 @@ def update_download_status(note_id, user_id, status, csv_path):
     except Exception as e:
         logger.error(f"更新下载状态失败: {e}")
         
-def check_download_status(note_id, user_id, csv_path):
-    """
-    检查笔记是否已完成下载
-    
-    :param note_id: 笔记ID
-    :param user_id: 用户ID
-    :param csv_path: CSV文件路径
-    :return: 是否已完成下载
-    """
-    if not csv_path:
-        return False
-        
-    try:
-        import os
-        import csv
-        
-        # 检查CSV文件
-        csv_file = os.path.join(csv_path, f"{user_id}_download_record.csv")
-        if not os.path.exists(csv_file):
-            return False
-            
-        # 读取记录
-        with open(csv_file, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f)
-            next(reader)  # 跳过表头
-            for row in reader:
-                if row and row[0] == note_id:
-                    # 检查是否完成
-                    if len(row) > 6 and row[6].strip().lower() == 'true':
-                        # 如果记录为已完成，还需要检查文件是否真实存在
-                        return True
-        
-        # 未找到记录或记录为未完成
-        return False
-        
-    except Exception as e:
-        logger.warning(f"检查下载状态失败: {e}")
-        return False
-
 def check_and_create_path(path):
     if not os.path.exists(path):
         os.makedirs(path)
