@@ -69,8 +69,11 @@ def check_download_status(note_info, media_path, csv_path):
     
     # 即使CSV显示完整，也进行基本文件检查
     # 先检查目录和info.json是否存在
-    if not os.path.exists(save_path) or not os.path.exists(f'{save_path}/info.json'):
-        logger.warning(f"笔记 {note_id} 的CSV记录显示完整，但文件夹或info.json不存在")
+    folder_exists = os.path.exists(save_path)
+    info_json_exists = os.path.exists(f'{save_path}/info.json')
+    
+    if not folder_exists or not info_json_exists:
+        logger.debug(f"笔记 {note_id} 的CSV 记录显示完整，但文件夹或info.json不存在")
         # 修改：如果物理文件不存在，无论CSV记录如何，都视为未下载，触发全新下载
         return False, False, csv_file
     
@@ -241,7 +244,7 @@ def check_note_files_complete(note_id, csv_path=None, media_path=None):
         info_json_exists = os.path.exists(f'{save_path}/info.json')
         
         if not folder_exists or not info_json_exists:
-            logger.warning(f"笔记 {note_id} 的CSV 记录显示完整，但文件夹或info.json不存在")
+            logger.debug(f"笔记 {note_id} 的CSV 记录显示完整，但文件夹或info.json不存在")
             return False
             
         # 3. 读取info.json获取笔记类型和预期文件信息
@@ -280,7 +283,7 @@ def check_note_files_complete(note_id, csv_path=None, media_path=None):
             media_files_complete = expected_image_count == actual_image_count and expected_image_indexes == actual_image_indexes
             
             if not media_files_complete:
-                logger.warning(f"笔记 {note_id} 图集不完整: 预期{expected_image_count}张, 实际{actual_image_count}张, 缺失的索引: {expected_image_indexes - actual_image_indexes}")
+                logger.debug(f"笔记 {note_id} 图集不完整: 预期{expected_image_count}张, 实际{actual_image_count}张, 缺失的索引: {expected_image_indexes - actual_image_indexes}")
                 
         elif note_type == '图集视频':
             # 图集视频类型需要检查所有图片和对应的视频
@@ -311,15 +314,15 @@ def check_note_files_complete(note_id, csv_path=None, media_path=None):
             
             if not media_files_complete:
                 if not images_complete:
-                    logger.warning(f"笔记 {note_id} 图集视频的图片不完整: 预期{expected_image_count}张, 实际{actual_image_count}张")
+                    logger.debug(f"笔记 {note_id} 图集视频的图片不完整: 预期{expected_image_count}张, 实际{actual_image_count}张")
                 if not videos_complete:
-                    logger.warning(f"笔记 {note_id} 图集视频的视频不完整: 预期{len(expected_video_image_indexes)}个, 实际{len(actual_video_indexes)}个, 缺失的索引: {expected_video_image_indexes - actual_video_indexes}")
+                    logger.debug(f"笔记 {note_id} 图集视频的视频不完整: 预期{len(expected_video_image_indexes)}个, 实际{len(actual_video_indexes)}个, 缺失的索引: {expected_video_image_indexes - actual_video_indexes}")
         
         # 5. 判断最终完整性
         is_complete = folder_exists and info_json_exists and media_files_exist and media_files_complete
         
         if csv_complete and not is_complete:
-            logger.warning(f"笔记 {note_id} 的CSV记录显示已完成，但文件不完整，需要重新下载")
+            logger.debug(f"笔记 {note_id} 的CSV记录显示已完成，但文件不完整，需要重新下载")
             
     except Exception as e:
         logger.warning(f"检查笔记 {note_id} 文件完整性时出错: {e}")
@@ -870,9 +873,14 @@ def download_note(note_info, save_path, raw_data, csv_path=None):
             
             # 检查视频文件是否存在
             video_exists = os.path.exists(video_path) and os.path.getsize(video_path) > 0
+            # 检查是否为全新下载
+            is_new_download = not os.path.exists(local_path) or len(os.listdir(local_path)) <= 1
             
             if video_url and not video_exists:
-                logger.info(f"↓ 视频笔记 [{title}_{note_id}] (作者: {nickname}) 开始下载视频")
+                if is_new_download:
+                    logger.info(f"↓ 视频笔记 [{title}_{note_id}] (作者: {nickname}) 开始全新下载")
+                else:
+                    logger.info(f"↓ 视频笔记 [{title}_{note_id}] (作者: {nickname}) 开始下载视频")
                 # 只下载视频
                 success = download_video(video_url, local_path)
             elif video_url and video_exists:
@@ -890,6 +898,9 @@ def download_note(note_info, save_path, raw_data, csv_path=None):
                 has_videos = note_type == '图集视频' and 'live_videos_list' in note_info and note_info['live_videos_list']
                 log_type = "图集视频" if has_videos else "图集"
                 
+                # 检查目录是否已存在，用于判断是全新下载还是更新下载
+                is_new_download = not os.path.exists(local_path) or len(os.listdir(local_path)) <= 1  # 只有目录或只有info.json
+                
                 # 收集缺失的图片索引
                 missing_images = []
                 for i in range(len(image_list)):
@@ -899,8 +910,12 @@ def download_note(note_info, save_path, raw_data, csv_path=None):
                 
                 # 下载缺失的图片
                 if missing_images:
-                    logger.info(f"↓ {log_type}笔记 [{title}_{note_id}] (作者: {nickname}) 下载缺失图片")
-                    logger.info(f"  下载{len(missing_images)}张缺失图片，索引: {missing_images}")
+                    if is_new_download:
+                        logger.info(f"↓ {log_type}笔记 [{title}_{note_id}] (作者: {nickname}) 开始全新下载")
+                        logger.info(f"  下载全部 {len(missing_images)} 张图片")
+                    else:
+                        logger.info(f"↓ {log_type}笔记 [{title}_{note_id}] (作者: {nickname}) 下载缺失图片")
+                        logger.info(f"  下载{len(missing_images)}张缺失图片，索引: {missing_images}")
                     for i in missing_images:
                         if i < len(image_list):  # 确保索引有效
                             img_url = image_list[i]
@@ -946,7 +961,11 @@ def download_note(note_info, save_path, raw_data, csv_path=None):
                     
                     # 下载缺失的视频
                     if missing_videos:
-                        logger.info(f"  下载{len(missing_videos)}个缺失视频")
+                        # 如果不是全新下载，才显示下载缺失视频的信息
+                        if not is_new_download:
+                            logger.info(f"  下载{len(missing_videos)}个缺失视频")
+                        else:
+                            logger.info(f"  下载全部 {len(missing_videos)} 个视频")
                         
                         for i, img_idx, video_url in missing_videos:
                             if not isinstance(video_url, str):
@@ -969,7 +988,7 @@ def download_note(note_info, save_path, raw_data, csv_path=None):
                         note_info['video_image_mapping'] = video_image_mapping
                     else:
                         logger.info(f"{log_type}笔记 [{title}_{note_id}] 所有视频已存在，无需下载")
-                        
+            
             else:
                 logger.error(f"图集笔记 [{title}_{note_id}] 未找到图片列表")
                 success = False

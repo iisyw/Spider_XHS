@@ -111,7 +111,7 @@ class Data_Spider():
             is_complete = check_note_files_complete(note_id, base_path.get('csv'), base_path.get('media'))
             
             if is_complete:
-                logger.info(f"笔记 {note_id} 本地文件完整，跳过API请求")
+                logger.debug(f"笔记 {note_id} 本地文件完整，跳过API请求")
                 # 尝试从本地加载笔记信息
                 try:
                     user_id = None
@@ -214,7 +214,7 @@ class Data_Spider():
                 
                 # 如果已完成，则记录跳过；否则进行下载并增加计数
                 if is_complete:
-                    logger.info(f"笔记 {note_id} 已完整下载，跳过")
+                    logger.debug(f"笔记 {note_id} 已完整下载，跳过")
                 else:
                     download_note(note_info, base_path['media'], raw_data, base_path.get('csv'))
                     actually_downloaded_count += 1
@@ -265,7 +265,7 @@ class Data_Spider():
             # 获取笔记列表
             success, msg, all_note_info = self.xhs_apis.get_user_all_notes(user_url, cookies_str, proxies)
             if success:
-                logger.info(f'用户 {user_url} 作品数量: {len(all_note_info)}')
+                logger.info(f'用户 {nickname}({user_id}) 作品数量: {len(all_note_info)}')
                 
                 # 读取已下载记录
                 csv_path = base_path.get('csv')
