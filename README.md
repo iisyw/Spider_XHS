@@ -160,9 +160,23 @@ PUSHDEER_KEY='你的PushDeer密钥'
 
 # 要爬取的用户URL列表，使用分号(;)分隔多个URL
 USER_URLS='https://www.xiaohongshu.com/user/profile/用户ID1?xsec_token=xxx;https://www.xiaohongshu.com/user/profile/用户ID2?xsec_token=yyy'
+
+# 爬虫运行模式：once(运行一次后退出)或continuous(持续监听模式)
+RUN_MODE='continuous'
+
+# 持续监听模式下每轮的等待间隔时间范围（分钟）
+MONITORING_INTERVAL_MIN='60'  # 最小等待时间，默认60分钟
+MONITORING_INTERVAL_MAX='120' # 最大等待时间，默认120分钟(2小时)
+
+# 用户爬取间隔时间范围（秒）
+USER_INTERVAL_MIN='30'  # 最小等待时间，默认30秒
+USER_INTERVAL_MAX='60'  # 最大等待时间，默认60秒
+
+# 日志级别：DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_LEVEL='INFO'
 ```
 
-**重要提示：在爬虫运行过程中，可以直接修改`.env`文件中的配置，无需重启程序，下一轮循环会自动加载最新配置。**
+**重要提示：在爬虫运行过程中，可以直接修改`.env`文件中的配置，无需重启程序，下一轮循环会自动加载最新配置。这包括Cookies、监控用户URL列表、等待时间间隔以及日志级别等所有配置项。**
 
 ### 🚀运行项目
 ```
@@ -217,6 +231,7 @@ python main.py
 | 25/06/07 | - 优化文件检查逻辑，减少API请求次数，提高爬取效率 |
 | 25/06/07 | - 调整CSV记录格式，改进换行处理，增加图片和视频数量统计 |
 | 25/06/07 | - 增加运行模式配置，可选择运行一次或持续监听模式 |
+| 25/07/27 | - 新增持续监控间隔时间配置，支持自定义最小和最大等待时间 |
 
 
 ## 🧸额外说明

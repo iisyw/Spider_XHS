@@ -11,9 +11,25 @@ import time
 from datetime import datetime, timedelta
 import json
 
-# 配置日志级别为DEBUG，显示所有调试信息
+# 配置日志级别为INFO（默认值），后续会根据配置动态调整
 logger.remove()
-logger.add(sink=sys.stderr, level="DEBUG")
+logger.add(sink=sys.stderr, level="INFO")
+
+def update_logger_level(log_level):
+    """
+    更新日志级别
+    :param log_level: 新的日志级别
+    """
+    # 确保日志级别有效
+    valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    if log_level.upper() not in valid_levels:
+        logger.warning(f"无效的日志级别: {log_level}，将使用默认值INFO")
+        log_level = "INFO"
+    
+    # 移除所有处理器并添加新的处理器
+    logger.remove()
+    logger.add(sink=sys.stderr, level=log_level.upper())
+    logger.info(f"日志级别已更新为: {log_level.upper()}")
 
 class Data_Spider():
     def __init__(self):
@@ -496,7 +512,11 @@ if __name__ == '__main__':
     logger.info("爬虫程序已启动，已发送通知")
     
     # 初始化基本路径和数据爬虫
-    cookies_str, base_path = init()
+    cookies_str, log_level, base_path = init()
+    
+    # 设置初始日志级别
+    update_logger_level(log_level)
+    
     data_spider = Data_Spider()
     
     # 读取运行模式配置
@@ -513,7 +533,7 @@ if __name__ == '__main__':
     # 监听循环处理用户
     def process_users_with_interval(user_urls, cookies_str, base_path):
         """
-        循环处理用户URL列表，每次处理完一个用户后随机等待30~60秒
+        循环处理用户URL列表，每次处理完一个用户后随机等待配置的时间
         :param user_urls: 要爬取的用户URL列表
         :param cookies_str: cookies字符串
         :param base_path: 保存路径
@@ -521,6 +541,17 @@ if __name__ == '__main__':
         if not user_urls:
             logger.warning("用户URL列表为空，无法处理")
             return
+            
+        # 获取用户间隔时间配置，支持动态重载
+        min_wait_seconds = int(os.environ.get('USER_INTERVAL_MIN', '30'))
+        max_wait_seconds = int(os.environ.get('USER_INTERVAL_MAX', '60'))
+        
+        # 确保最小值不大于最大值
+        if min_wait_seconds > max_wait_seconds:
+            logger.warning(f"配置错误: 最小等待时间({min_wait_seconds})大于最大等待时间({max_wait_seconds})，将交换两个值")
+            min_wait_seconds, max_wait_seconds = max_wait_seconds, min_wait_seconds
+            
+        logger.info(f"用户间隔时间配置: {min_wait_seconds}-{max_wait_seconds}秒")
             
         for i, user_url in enumerate(user_urls):
             # 提取用户ID用于日志
@@ -539,8 +570,8 @@ if __name__ == '__main__':
                 
                 # 如果不是最后一个用户，等待随机时间
                 if i < len(user_urls) - 1:
-                    # 随机等待时间（30-60秒）
-                    wait_seconds = random.randint(30, 60)
+                    # 随机等待时间（使用配置的范围）
+                    wait_seconds = random.randint(min_wait_seconds, max_wait_seconds)
                     logger.info(f"等待 {wait_seconds} 秒后继续下一个用户")
                     time.sleep(wait_seconds)
                     logger.info("等待结束，开始下一个用户")
@@ -550,7 +581,7 @@ if __name__ == '__main__':
                 
                 # 即使出错，也等待一段时间再继续
                 if i < len(user_urls) - 1:
-                    wait_seconds = random.randint(20, 40)  # 出错后等待稍短一些
+                    wait_seconds = random.randint(min_wait_seconds // 2, max_wait_seconds // 2)  # 出错后等待稍短一些
                     logger.info(f"出错后等待 {wait_seconds} 秒后继续")
                     time.sleep(wait_seconds)
         
@@ -570,9 +601,12 @@ if __name__ == '__main__':
         
         while True:
             try:
-                # 每轮循环开始时重新读取环境变量，获取最新的cookies和用户URL列表
-                current_cookies = load_env()
+                # 每轮循环开始时重新读取环境变量，获取最新的cookies、日志级别和用户URL列表
+                current_cookies, current_log_level = load_env()
                 current_user_urls = load_user_urls()
+                
+                # 更新日志级别
+                update_logger_level(current_log_level)
                 
                 # 如果没有URL可爬取，等待后重试
                 if not current_user_urls:
@@ -596,8 +630,17 @@ if __name__ == '__main__':
                 cycle_end_time = datetime.now()
                 duration_minutes = (cycle_end_time - cycle_start_time).total_seconds() / 60
                 
-                # 随机等待时间（1-2小时）
-                wait_minutes = random.randint(60, 120)
+                # 从环境变量读取等待时间范围，支持动态重载
+                min_wait_minutes = int(os.environ.get('MONITORING_INTERVAL_MIN', '60'))
+                max_wait_minutes = int(os.environ.get('MONITORING_INTERVAL_MAX', '120'))
+                
+                # 确保最小值不大于最大值
+                if min_wait_minutes > max_wait_minutes:
+                    logger.warning(f"配置错误: 最小等待时间({min_wait_minutes})大于最大等待时间({max_wait_minutes})，将交换两个值")
+                    min_wait_minutes, max_wait_minutes = max_wait_minutes, min_wait_minutes
+                
+                # 随机等待时间
+                wait_minutes = random.randint(min_wait_minutes, max_wait_minutes)
                 wait_seconds = wait_minutes * 60
                 
                 # 计算等待结束时间

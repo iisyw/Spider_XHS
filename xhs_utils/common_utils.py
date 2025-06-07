@@ -3,9 +3,14 @@ from loguru import logger
 from dotenv import load_dotenv
 
 def load_env():
+    """
+    从环境变量中加载配置信息
+    :return: cookies字符串和日志级别
+    """
     load_dotenv()
     cookies_str = os.getenv('COOKIES')
-    return cookies_str
+    log_level = os.getenv('LOG_LEVEL', 'INFO')
+    return cookies_str, log_level
 
 def load_user_urls():
     """
@@ -31,10 +36,10 @@ def init():
         if not os.path.exists(base_path):
             os.makedirs(base_path)
             logger.info(f'创建目录 {base_path}')
-    cookies_str = load_env()
+    cookies_str, log_level = load_env()
     base_path = {
         'media': media_base_path,
         'excel': excel_base_path,
         'csv': csv_base_path,
     }
-    return cookies_str, base_path
+    return cookies_str, log_level, base_path
