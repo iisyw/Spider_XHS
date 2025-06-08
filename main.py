@@ -4,6 +4,7 @@ from apis.pc_apis import XHS_Apis
 from xhs_utils.common_utils import init, load_env, load_user_urls
 from xhs_utils.data_util import handle_note_info, download_note, save_to_xlsx, create_note_record, norm_str, check_note_files_complete, update_download_status
 from xhs_utils.push_util import pusher
+from xhs_utils.schedule_utils import schedule_controller
 import sys
 import csv
 import random
@@ -590,7 +591,7 @@ if __name__ == '__main__':
         # 只运行一次模式下，发送完成通知
         if run_mode == 'once':
             pusher.notify_info("爬取完成", f"一次性运行模式已完成，共处理 {len(user_urls)} 个用户")
-
+    
     # 开始连续监听处理
     def continuous_monitoring(base_path):
         """
@@ -615,6 +616,19 @@ if __name__ == '__main__':
                     logger.info(f"等待 {wait_minutes} 分钟后重新检查配置...")
                     time.sleep(wait_minutes * 60)
                     continue  # 跳过本轮循环
+                
+                # 检查当前时间是否允许爬取
+                if not schedule_controller.is_time_allowed():
+                    next_time = schedule_controller.get_next_allowed_time()
+                    if next_time:
+                        logger.info(f"当前时间不在允许爬取的时间段内，将等待到 {next_time}")
+                        pusher.notify_info("爬虫休息中", f"当前时间不在设定的爬取时间段内，将等待到 {next_time} 再开始爬取")
+                        
+                        # 等待10分钟后再次检查（循环中检查时间段）
+                        time.sleep(10 * 60)
+                        continue
+                    else:
+                        logger.warning("无法确定下一个允许爬取的时间，将继续按计划执行")
                 
                 # 记录当前轮次开始时间
                 cycle_count += 1
@@ -656,7 +670,7 @@ if __name__ == '__main__':
                 
                 # 等待指定时间
                 time.sleep(wait_seconds)
-                
+            
             except Exception as e:
                 # 处理整个周期的异常，休息后继续
                 logger.error(f"第 {cycle_count} 轮周期处理中出现错误: {e}")
@@ -669,6 +683,21 @@ if __name__ == '__main__':
     if run_mode == 'once':
         # 一次性运行模式
         logger.info("启动一次性运行模式，将处理所有用户后退出")
+        
+        # 检查当前时间是否允许爬取
+        if not schedule_controller.is_time_allowed():
+            next_time = schedule_controller.get_next_allowed_time()
+            if next_time:
+                logger.info(f"当前时间不在允许爬取的时间段内，将等待到 {next_time}")
+                pusher.notify_info("爬虫等待中", f"当前时间不在设定的爬取时间段内，将等待到 {next_time} 再开始爬取")
+                
+                # 等待直到允许的时间段
+                while not schedule_controller.is_time_allowed():
+                    time.sleep(60)  # 每分钟检查一次
+                
+                logger.info("进入允许爬取的时间段，开始处理")
+                pusher.notify_info("开始爬取", "已进入允许爬取的时间段，开始处理用户")
+        
         process_users_with_interval(user_urls, cookies_str, base_path)
         logger.info("一次性运行模式完成，程序退出")
     else:

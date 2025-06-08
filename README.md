@@ -146,7 +146,34 @@ docker run -d --name spider_xhs \
 
 PushDeer是一个开源的推送服务，支持iOS、Android、Web等多平台。[点此获取PushDeer](https://www.pushdeer.com/)。
 
-#### 3. USER_URLS配置（必需）
+#### 3. 时间段控制配置（可选）
+
+用于控制爬虫在特定时间段内运行或停止，包括：
+- 启用/禁用时间段控制
+- 白名单模式（仅在指定时间段内爬取）或黑名单模式（在指定时间段内不爬取）
+- 可设置多个时间段，如工作时间、夜间等
+
+配置示例：
+```
+# 启用时间段控制
+SCHEDULE_ENABLED='true'
+
+# 白名单模式：仅在以下时间段内爬取
+SCHEDULE_MODE='allowlist'
+SCHEDULE_TIMES='08:30-12:00;14:00-18:00'
+
+# 黑名单模式：在以下时间段内不爬取
+# SCHEDULE_MODE='blocklist'
+# SCHEDULE_TIMES='00:00-08:00;23:00-23:59'
+```
+
+支持的功能：
+- 在非工作时间自动暂停爬取，减少资源占用
+- 可设置多个时间段，灵活控制爬取时间
+- 爬虫会定期检查时间段设置，无需重启即可生效
+- 在达到允许爬取的时间段时，自动恢复爬取并发送通知
+
+#### 4. USER_URLS配置（必需）
 
 设置要监控的用户URL列表，多个URL使用分号(;)分隔：
 
@@ -171,6 +198,11 @@ MONITORING_INTERVAL_MAX='120' # 最大等待时间，默认120分钟(2小时)
 # 用户爬取间隔时间范围（秒）
 USER_INTERVAL_MIN='30'  # 最小等待时间，默认30秒
 USER_INTERVAL_MAX='60'  # 最大等待时间，默认60秒
+
+# 时间段控制配置（可选）
+SCHEDULE_ENABLED='true'  # 是否启用时间段控制，true或false
+SCHEDULE_MODE='allowlist'  # 时间段模式：allowlist(仅在指定时间段内爬取)或blocklist(在指定时间段内不爬取)
+SCHEDULE_TIMES='08:30-23:30'  # 时间段列表，格式为HH:MM-HH:MM，使用分号(;)分隔多个时间段
 
 # 日志级别：DEBUG, INFO, WARNING, ERROR, CRITICAL
 LOG_LEVEL='INFO'
@@ -234,6 +266,7 @@ python main.py
 | 25/06/07 | - 新增持续监控间隔时间配置，支持自定义最小和最大等待时间，支持动态重载 |
 | 25/06/07 | - 新增用户间隔时间配置，支持自定义最小和最大等待时间，支持动态重载 |
 | 25/06/07 | - 新增日志级别配置，支持动态重载 |
+| 25/06/08 | - 新增时间段控制功能，支持在特定时间段内爬取或禁止爬取，实现智能化运行调度 |
 
 ## 🧸额外说明
 1. 感谢star⭐和follow📰！不时更新
