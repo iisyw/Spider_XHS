@@ -684,20 +684,7 @@ if __name__ == '__main__':
         # 一次性运行模式
         logger.info("启动一次性运行模式，将处理所有用户后退出")
         
-        # 检查当前时间是否允许爬取
-        if not schedule_controller.is_time_allowed():
-            next_time = schedule_controller.get_next_allowed_time()
-            if next_time:
-                logger.info(f"当前时间不在允许爬取的时间段内，将等待到 {next_time}")
-                pusher.notify_info("爬虫等待中", f"当前时间不在设定的爬取时间段内，将等待到 {next_time} 再开始爬取")
-                
-                # 等待直到允许的时间段
-                while not schedule_controller.is_time_allowed():
-                    time.sleep(60)  # 每分钟检查一次
-                
-                logger.info("进入允许爬取的时间段，开始处理")
-                pusher.notify_info("开始爬取", "已进入允许爬取的时间段，开始处理用户")
-        
+        # 一次性运行模式不受时间段限制，直接处理
         process_users_with_interval(user_urls, cookies_str, base_path)
         logger.info("一次性运行模式完成，程序退出")
     else:
